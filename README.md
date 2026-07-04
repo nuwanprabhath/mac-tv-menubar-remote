@@ -13,6 +13,12 @@ A native macOS menu bar remote for Panasonic VIERA TVs (unencrypted protocol, pr
 - **Transport keys** (play/pause/stop) and power-off via Panasonic's `X_SendKey` SOAP action on port 55000.
 - Ships as a proper `.app` with `LSUIElement` — menu bar only, no Dock icon.
 
+## Download
+
+Grab the latest build from [Releases](https://github.com/nuwanprabhath/mac-tv-menubar-remote/releases) — download the `.zip`, unzip it, and drag `TV Menubar Remote.app` into `/Applications`.
+
+The app is ad-hoc signed (not notarized by Apple), so macOS Gatekeeper will refuse to open it with a plain double-click the first time. To run it: **right-click the app → Open → Open** in the dialog that follows. You only need to do this once.
+
 ## Build & install
 
 ```sh
