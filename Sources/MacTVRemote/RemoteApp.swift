@@ -21,8 +21,8 @@ struct RemoteView: View {
             header
 
             HStack(spacing: 10) {
-                TransportButton(symbol: "play.fill", help: "Play") { tv.press(.play) }
-                TransportButton(symbol: "pause.fill", help: "Pause") { tv.press(.pause) }
+                TransportButton(symbol: "play.fill", help: "Play") { tv.playPause(true) }
+                TransportButton(symbol: "pause.fill", help: "Pause") { tv.playPause(false) }
                 TransportButton(symbol: "stop.fill", help: "Stop") { tv.press(.stop) }
                 TransportButton(
                     symbol: tv.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
@@ -31,7 +31,47 @@ struct RemoteView: View {
                 ) { tv.toggleMute() }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                TransportButton(symbol: "gobackward.30", help: "Back 30 seconds (cast session)") {
+                    tv.skipCast(by: -30)
+                }
+                .disabled(tv.castInfo?.isActive != true)
+
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(spacing: 1) {
+                        if let cast = tv.castInfo, cast.isActive {
+                            let position = tv.castPosition(at: context.date) ?? cast.currentTime
+                            Text("\(cast.appName) · \(cast.playerState.capitalized)")
+                                .font(.caption)
+                                .lineLimit(1)
+                            if let duration = cast.duration {
+                                Text("\(Self.time(position)) / \(Self.time(duration))")
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                Text("\(Self.time(max(0, duration - position))) left")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            } else {
+                                Text(Self.time(position))
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text("No cast session")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+
+                TransportButton(symbol: "goforward.30", help: "Forward 30 seconds (cast session)") {
+                    tv.skipCast(by: 30)
+                }
+                .disabled(tv.castInfo?.isActive != true)
+            }
+
+            HStack(alignment: .top, spacing: 8) {
                 Button {
                     tv.stepVolume(by: -1)
                 } label: {
@@ -43,9 +83,17 @@ struct RemoteView: View {
                 .disabled(tv.volume <= 0)
                 .help("Volume down")
 
-                VolumeTrack(value: $tv.volume) { newValue in
-                    tv.volumeChanged(to: newValue)
+                VStack(spacing: 3) {
+                    VolumeTrack(value: $tv.volume) { newValue in
+                        tv.volumeChanged(to: newValue)
+                    }
+                    // Keeps the track vertically centered on the buttons;
+                    // the readout hangs below without pushing the row apart.
+                    Text("\(Int(tv.volume))")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.top, 6)
 
                 Button {
                     tv.stepVolume(by: 1)
@@ -57,11 +105,6 @@ struct RemoteView: View {
                 .buttonStyle(.bordered)
                 .disabled(tv.volume >= 100)
                 .help("Volume up")
-
-                Text("\(Int(tv.volume))")
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 24, alignment: .trailing)
-                    .foregroundStyle(.secondary)
             }
 
             Divider()
@@ -136,6 +179,17 @@ struct RemoteView: View {
         guard !channelInput.isEmpty else { return }
         tv.enterChannel(channelInput)
         channelInput = ""
+    }
+
+    /// 754 -> "12:34", 4510 -> "1:15:10"
+    static func time(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let hours = total / 3600
+        let minutes = total % 3600 / 60
+        let secs = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+            : String(format: "%d:%02d", minutes, secs)
     }
 
     private var header: some View {

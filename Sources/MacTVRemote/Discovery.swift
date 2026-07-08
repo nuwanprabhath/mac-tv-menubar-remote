@@ -13,20 +13,36 @@ struct DiscoveredTV: Sendable, Equatable {
 /// descriptor (`/nrc/ddd.xml`).
 enum Discovery {
     static func findTVs(timeout: TimeInterval = 2.5) async -> [DiscoveredTV] {
-        let candidates = await Task.detached(priority: .userInitiated) {
+        await resolve(candidates: ssdpSearchAsync(timeout: timeout).filter {
+            $0.location.lowercased().hasSuffix("/nrc/ddd.xml")
+        })
+    }
+
+    /// Google Cast devices (Chromecast etc.). They answer the same SSDP
+    /// broadcast, advertising their DIAL descriptor on port 8008.
+    static func findCastDevices(timeout: TimeInterval = 2.5) async -> [DiscoveredTV] {
+        await resolve(candidates: ssdpSearchAsync(timeout: timeout).filter {
+            $0.location.contains(":8008/")
+        })
+    }
+
+    private static func ssdpSearchAsync(timeout: TimeInterval) async -> [(host: String, location: String)] {
+        await Task.detached(priority: .userInitiated) {
             ssdpSearch(timeout: timeout)
         }.value
+    }
 
-        var tvs: [DiscoveredTV] = []
+    private static func resolve(candidates: [(host: String, location: String)]) async -> [DiscoveredTV] {
+        var devices: [DiscoveredTV] = []
         for (host, location) in candidates {
             let name = await friendlyName(descriptorURL: location) ?? host
-            tvs.append(DiscoveredTV(host: host, name: name))
+            devices.append(DiscoveredTV(host: host, name: name))
         }
-        return tvs
+        return devices
     }
 
     /// Blocking SSDP search over a plain BSD UDP socket.
-    /// Returns unique (host, descriptor URL) pairs for VIERA remote-control endpoints.
+    /// Returns every unique (host, descriptor URL) pair that responds; callers filter.
     private static func ssdpSearch(timeout: TimeInterval) -> [(host: String, location: String)] {
         let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         guard fd >= 0 else { return [] }
@@ -75,13 +91,14 @@ enum Discovery {
             guard n > 0 else { continue }
 
             let text = String(decoding: buffer[0..<n], as: UTF8.self)
-            guard let location = firstMatch(in: text, pattern: "(?im)^location:\\s*(\\S+)"),
-                  location.lowercased().hasSuffix("/nrc/ddd.xml") else { continue }
+            guard let location = firstMatch(in: text, pattern: "(?im)^location:\\s*(\\S+)") else { continue }
             let host = String(cString: inet_ntoa(from.sin_addr))
-            found[host] = location
+            // Keyed by location: one device advertises several descriptors,
+            // and callers pick the one they recognize.
+            found[location] = host
         }
 
-        return found.map { (host: $0.key, location: $0.value) }.sorted { $0.host < $1.host }
+        return found.map { (host: $0.value, location: $0.key) }.sorted { $0.host < $1.host }
     }
 
     /// Reads the TV's friendly name (e.g. "55DX640_Series") from its UPnP descriptor.

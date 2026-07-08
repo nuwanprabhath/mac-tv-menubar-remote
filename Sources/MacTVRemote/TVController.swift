@@ -21,6 +21,28 @@ final class TVController: ObservableObject {
     @Published var isMuted = false
     @Published var lastError: String?
 
+    @Published var castHost: String? {
+        didSet { UserDefaults.standard.set(castHost, forKey: "castHost") }
+    }
+    @Published var castName: String? {
+        didSet { UserDefaults.standard.set(castName, forKey: "castName") }
+    }
+    /// Live media session on the Chromecast, nil when nothing is casting.
+    @Published var castInfo: CastMediaStatus? {
+        didSet { castInfoDate = Date() }
+    }
+    /// When `castInfo` was fetched — lets the UI tick the position forward
+    /// locally while playing, without polling the Chromecast.
+    private(set) var castInfoDate = Date()
+
+    /// Playback position extrapolated to `date` (frozen while paused/buffering).
+    func castPosition(at date: Date) -> Double? {
+        guard let info = castInfo else { return nil }
+        guard info.playerState == "PLAYING" else { return info.currentTime }
+        let position = info.currentTime + date.timeIntervalSince(castInfoDate)
+        return info.duration.map { min(position, $0) } ?? position
+    }
+
     private var client: VieraClient { VieraClient(host: host) }
     private var volumeSetTask: Task<Void, Never>?
     /// Suppresses slider onChange feedback while we apply TV state to the UI.
@@ -29,12 +51,16 @@ final class TVController: ObservableObject {
     init() {
         host = UserDefaults.standard.string(forKey: "tvHost") ?? ""
         deviceName = UserDefaults.standard.string(forKey: "tvName") ?? "No TV configured"
+        castHost = UserDefaults.standard.string(forKey: "castHost")
+        castName = UserDefaults.standard.string(forKey: "castName")
     }
 
     /// Called when the menu bar popover opens: sync UI with the TV,
     /// re-discovering it if the cached address no longer answers.
     func refresh() async {
         lastError = nil
+        let castJob = Task { await refreshCast() }
+        defer { _ = castJob }
         if host.isEmpty {
             await discover()
             return
@@ -55,6 +81,77 @@ final class TVController: ObservableObject {
         host = tv.host
         deviceName = tv.name
         _ = await pullState()
+        if castHost == nil { await discoverCast() }
+    }
+
+    // MARK: - Chromecast
+
+    func discoverCast() async {
+        guard let device = await Discovery.findCastDevices().first else { return }
+        castHost = device.host
+        castName = device.name
+    }
+
+    func refreshCast() async {
+        if castHost == nil { await discoverCast() }
+        guard let host = castHost else {
+            castInfo = nil
+            return
+        }
+        do {
+            castInfo = try await CastClient(host: host).mediaStatus()
+        } catch {
+            // Device unreachable — its IP may have changed; rediscover once.
+            castInfo = nil
+            await discoverCast()
+            if let newHost = castHost, newHost != host {
+                castInfo = try? await CastClient(host: newHost).mediaStatus()
+            }
+        }
+    }
+
+    /// Seek the active cast session by ±seconds (Netflix etc. via Chromecast).
+    /// The TV itself has no working seek path, so this is cast-only.
+    func skipCast(by delta: Double) {
+        guard let host = castHost, castInfo?.isActive == true else {
+            lastError = "Skip needs an active cast session (e.g. Netflix on the Chromecast)."
+            return
+        }
+        Task {
+            do {
+                let position = try await CastClient(host: host).seek(by: delta)
+                lastError = nil
+                if var info = castInfo {
+                    info = CastMediaStatus(
+                        appName: info.appName, playerState: info.playerState,
+                        currentTime: position, duration: info.duration,
+                        mediaSessionId: info.mediaSessionId
+                    )
+                    castInfo = info
+                }
+            } catch {
+                lastError = "Seek failed: \(error.localizedDescription)"
+                await refreshCast()
+            }
+        }
+    }
+
+    /// Play/pause routed to the Chromecast when it has an active session
+    /// (direct and reliable), falling back to the TV key (HDMI-CEC hop) otherwise.
+    func playPause(_ play: Bool) {
+        if let host = castHost, castInfo?.isActive == true {
+            Task {
+                do {
+                    try await CastClient(host: host).setPlaying(play)
+                    lastError = nil
+                    await refreshCast()
+                } catch {
+                    press(play ? .play : .pause)
+                }
+            }
+        } else {
+            press(play ? .play : .pause)
+        }
     }
 
     @discardableResult

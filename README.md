@@ -9,6 +9,8 @@ A native macOS menu bar remote for Panasonic VIERA TVs (unencrypted protocol, pr
 ## Features
 
 - **Auto-discovery**: finds the TV via SSDP (`ssdp:all` M-SEARCH, filtered to the VIERA `/nrc/ddd.xml` descriptor), so it keeps working when the TV's IP changes. Last known address is cached for instant startup and re-discovery only happens when the TV stops answering.
+- **±30s skip buttons for casting**: a built-in Google Cast v2 client (TLS on port 8009, protobuf-framed JSON, zero dependencies) sends `SEEK` to the Chromecast's live media session — the same command the Google Home app's skip buttons use. Works with Netflix and anything else that casts. Chromecasts are auto-discovered over the same SSDP broadcast.
+- **Cast-aware play/pause**: routed straight to the Chromecast when a cast session is active, falling back to the TV remote key (HDMI-CEC hop) otherwise. The popover shows what's casting and its player state.
 - **Absolute volume slider** backed by UPnP RenderingControl `GetVolume`/`SetVolume` (debounced), with live volume/mute state synced every time the popover opens.
 - **Transport keys** (play/pause/stop) and power-off via Panasonic's `X_SendKey` SOAP action on port 55000.
 - Ships as a proper `.app` with `LSUIElement` — menu bar only, no Dock icon.
@@ -34,8 +36,10 @@ To start at login: System Settings → General → Login Items → add the app.
 The same binary doubles as a network-layer test tool:
 
 ```sh
-.build/release/MacTVRemote --discover      # list VIERA TVs on the LAN
-.build/release/MacTVRemote --status [ip]   # print volume/mute state
+.build/release/MacTVRemote --discover              # list VIERA TVs and Cast devices on the LAN
+.build/release/MacTVRemote --status [ip]           # print TV volume/mute state
+.build/release/MacTVRemote --cast-status [ip]      # print the Chromecast's media session
+.build/release/MacTVRemote --cast-seek <±s> [ip]   # seek the active cast session, e.g. --cast-seek 30
 ```
 
 ## Notes

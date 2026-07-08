@@ -1,8 +1,10 @@
 import Foundation
 
 // CLI escape hatches for testing the network layer without the GUI:
-//   mac-tv-menubar-remote --discover      list VIERA TVs found via SSDP
-//   mac-tv-menubar-remote --status [ip]   print volume/mute for a TV
+//   mac-tv-menubar-remote --discover           list VIERA TVs and Cast devices found via SSDP
+//   mac-tv-menubar-remote --status [ip]        print volume/mute for a TV
+//   mac-tv-menubar-remote --cast-status [ip]   print the Chromecast's media session
+//   mac-tv-menubar-remote --cast-seek <±s> [ip] seek the active cast session
 let arguments = CommandLine.arguments
 
 if arguments.contains("--discover") {
@@ -12,7 +14,53 @@ if arguments.contains("--discover") {
             print("No VIERA TVs found.")
         }
         for tv in tvs {
-            print("\(tv.host)  \(tv.name)")
+            print("TV    \(tv.host)  \(tv.name)")
+        }
+        let casts = await Discovery.findCastDevices()
+        for cast in casts {
+            print("CAST  \(cast.host)  \(cast.name)")
+        }
+    }
+} else if let index = arguments.firstIndex(of: "--cast-status") {
+    runBlocking {
+        var host = arguments.count > index + 1 ? arguments[index + 1] : ""
+        if host.isEmpty {
+            host = await Discovery.findCastDevices().first?.host ?? ""
+        }
+        guard !host.isEmpty else {
+            print("No Cast device found or specified.")
+            return
+        }
+        do {
+            if let info = try await CastClient(host: host).mediaStatus() {
+                let duration = info.duration.map { " duration=\($0)s remaining=\(Int(info.remaining ?? 0))s" } ?? ""
+                print("Cast \(host): app=\(info.appName) state=\(info.playerState) position=\(info.currentTime)s\(duration)")
+            } else {
+                print("Cast \(host): idle (nothing casting)")
+            }
+        } catch {
+            print("Cast \(host): error — \(error.localizedDescription)")
+        }
+    }
+} else if let index = arguments.firstIndex(of: "--cast-seek") {
+    runBlocking {
+        guard arguments.count > index + 1, let delta = Double(arguments[index + 1]) else {
+            print("Usage: --cast-seek <±seconds> [host]")
+            return
+        }
+        var host = arguments.count > index + 2 ? arguments[index + 2] : ""
+        if host.isEmpty {
+            host = await Discovery.findCastDevices().first?.host ?? ""
+        }
+        guard !host.isEmpty else {
+            print("No Cast device found or specified.")
+            return
+        }
+        do {
+            let position = try await CastClient(host: host).seek(by: delta)
+            print("Cast \(host): seeked \(delta >= 0 ? "+" : "")\(Int(delta))s -> \(position)s")
+        } catch {
+            print("Cast \(host): error — \(error.localizedDescription)")
         }
     }
 } else if let index = arguments.firstIndex(of: "--status") {
