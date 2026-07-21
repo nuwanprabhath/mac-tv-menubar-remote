@@ -123,9 +123,9 @@ final class TVController: ObservableObject {
                 lastError = nil
                 if var info = castInfo {
                     info = CastMediaStatus(
-                        appName: info.appName, playerState: info.playerState,
-                        currentTime: position, duration: info.duration,
-                        mediaSessionId: info.mediaSessionId
+                        appName: info.appName, title: info.title, subtitle: info.subtitle,
+                        playerState: info.playerState, currentTime: position,
+                        duration: info.duration, mediaSessionId: info.mediaSessionId
                     )
                     castInfo = info
                 }

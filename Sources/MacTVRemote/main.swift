@@ -4,6 +4,7 @@ import Foundation
 //   mac-tv-menubar-remote --discover           list VIERA TVs and Cast devices found via SSDP
 //   mac-tv-menubar-remote --status [ip]        print volume/mute for a TV
 //   mac-tv-menubar-remote --cast-status [ip]   print the Chromecast's media session
+//   mac-tv-menubar-remote --cast-raw [ip]      dump the raw media session JSON (metadata shape)
 //   mac-tv-menubar-remote --cast-seek <±s> [ip] seek the active cast session
 let arguments = CommandLine.arguments
 
@@ -34,7 +35,27 @@ if arguments.contains("--discover") {
         do {
             if let info = try await CastClient(host: host).mediaStatus() {
                 let duration = info.duration.map { " duration=\($0)s remaining=\(Int(info.remaining ?? 0))s" } ?? ""
-                print("Cast \(host): app=\(info.appName) state=\(info.playerState) position=\(info.currentTime)s\(duration)")
+                print("Cast \(host): app=\(info.appName) title=\"\(info.displayTitle)\" state=\(info.playerState) position=\(info.currentTime)s\(duration)")
+            } else {
+                print("Cast \(host): idle (nothing casting)")
+            }
+        } catch {
+            print("Cast \(host): error — \(error.localizedDescription)")
+        }
+    }
+} else if let index = arguments.firstIndex(of: "--cast-raw") {
+    runBlocking {
+        var host = arguments.count > index + 1 ? arguments[index + 1] : ""
+        if host.isEmpty {
+            host = await Discovery.findCastDevices().first?.host ?? ""
+        }
+        guard !host.isEmpty else {
+            print("No Cast device found or specified.")
+            return
+        }
+        do {
+            if let json = try await CastClient(host: host).rawMediaSessionJSON() {
+                print(String(decoding: json, as: UTF8.self))
             } else {
                 print("Cast \(host): idle (nothing casting)")
             }

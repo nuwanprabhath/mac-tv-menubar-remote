@@ -41,8 +41,15 @@ struct RemoteView: View {
                     VStack(spacing: 1) {
                         if let cast = tv.castInfo, cast.isActive {
                             let position = tv.castPosition(at: context.date) ?? cast.currentTime
-                            Text("\(cast.appName) · \(cast.playerState.capitalized)")
+                            Text(cast.displayTitle)
                                 .font(.caption)
+                                .fontWeight(.semibold)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .help(cast.displayTitle) // full title on hover when truncated
+                            Text("\(cast.appName) · \(cast.playerState.capitalized)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             if let duration = cast.duration {
                                 Text("\(Self.time(position)) / \(Self.time(duration))")

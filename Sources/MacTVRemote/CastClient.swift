@@ -3,7 +3,12 @@ import Network
 
 /// Snapshot of what's playing on a Google Cast device.
 struct CastMediaStatus: Sendable {
-    let appName: String
+    let appName: String // the cast receiver app, e.g. "Netflix", "ABC iview"
+    /// Show/movie title from `media.metadata.title` (Cast's generic metadata
+    /// field — used for both plain titles and series names, depending on app).
+    let title: String?
+    /// Episode-specific text from `media.metadata.subtitle`, when present.
+    let subtitle: String?
     let playerState: String // PLAYING / PAUSED / BUFFERING / IDLE
     let currentTime: Double
     let duration: Double? // total length in seconds; nil for live/unknown
@@ -11,6 +16,17 @@ struct CastMediaStatus: Sendable {
 
     var isActive: Bool { playerState != "IDLE" }
     var remaining: Double? { duration.map { max(0, $0 - currentTime) } }
+
+    /// What's actually playing, e.g. "Four Corners — S2026 Click To Kill: The AI War Machine".
+    /// Falls back to the app name when the cast app sends no metadata at all.
+    var displayTitle: String {
+        switch (title, subtitle) {
+        case let (.some(t), .some(s)) where t != s: return "\(t) — \(s)"
+        case let (.some(t), _): return t
+        case let (_, .some(s)): return s
+        case (nil, nil): return appName
+        }
+    }
 }
 
 enum CastError: LocalizedError {
@@ -55,6 +71,19 @@ struct CastClient: Sendable {
                 extra: ["mediaSessionId": current.status.mediaSessionId, "currentTime": target]
             )
             return Self.firstSession(in: reply)?["currentTime"].flatMap(Self.double) ?? target
+        }
+    }
+
+    /// Raw GET_STATUS session as pretty-printed JSON — handy for inspecting an
+    /// unfamiliar cast app's metadata shape (field names vary: title/subtitle
+    /// vs. seriesTitle/episodeTitle for TV-show metadata) before mapping it
+    /// to a display string. Returns Data (not [String: Any]) to stay Sendable.
+    func rawMediaSessionJSON() async throws -> Data? {
+        try await withSession { session in
+            guard let current = try await session.fetchMediaStatus() else { return nil }
+            let media = try await session.mediaRequest(type: "GET_STATUS", transportId: current.transportId, extra: [:])
+            guard let dict = Self.firstSession(in: media) else { return nil }
+            return try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         }
     }
 
@@ -184,8 +213,11 @@ final class CastSession: @unchecked Sendable {
         }
         let mediaInfo = session["media"] as? [String: Any]
         let duration = mediaInfo?["duration"].flatMap(CastClient.double)
+        let metadata = mediaInfo?["metadata"] as? [String: Any]
         let status = CastMediaStatus(
             appName: appName,
+            title: metadata?["title"] as? String,
+            subtitle: metadata?["subtitle"] as? String,
             playerState: playerState,
             currentTime: session["currentTime"].flatMap(CastClient.double) ?? 0,
             duration: (duration ?? 0) > 0 ? duration : nil,

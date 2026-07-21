@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3 — 2026-07-08
+
+- Cast row now shows the actual episode/show title (`media.metadata.title` + `.subtitle`, e.g. "Four Corners — S2026 Click To Kill: The AI War Machine") instead of just the cast app name, which is what was getting clipped before ("ABC iview · Pla..." was the app name + state, not a title). Truncated titles show the full text on hover via a native tooltip. App name and player state moved to a smaller line underneath.
+- Added `--cast-raw [ip]` CLI flag to dump a cast app's full media session JSON — useful for mapping a new app's metadata shape.
+
 ## 0.3.2 — 2026-07-08
 
 - Cast timing now ticks live: the position extrapolates locally once per second from the last Chromecast snapshot while playing (frozen while paused), with no extra network polling.
